@@ -8,14 +8,12 @@ def createUser(username):
     command = commandDB(connection, "INSERT INTO users (username) VALUES ('{username}')")
 
 #update lastBetDate in users DB table
-def updateUserBetDate(newDate):
-    connection = connectDB()
+def updateUserBetDate(connection, newDate):
     command = commandDB(connection, "INSERT INTO users (lastBetDate) VALUES ('{newDate}')")
 
 #can use userID instead of username? unsure which is better. plenty of ways to do this one. 
 #username is more human-readable maybe? but userID is technically our primary key.  both are unique though.
-def updateUserBalance(balanceChange, username):
-    connection = connectDB()
+def updateUserBalance(connection, balanceChange, username):
     command = commandDB(connection, "UPDATE users SET balance = balance + {balanceChange} WHERE username = {username}")
 
 

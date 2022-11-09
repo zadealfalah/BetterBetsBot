@@ -5,7 +5,6 @@ import sys
 import praw
 load_dotenv()
 
-#do we need these imports on every single script? or just on one that will run first to connect to db?
 
 #function to connect to DB via .env file credentials
 #uses DictCursor
@@ -25,8 +24,7 @@ def connectDB():
 def commandDB(connection, command):
     with connection:
         with connection.cursor() as cursor:
-            sql = f"{command}"
-            cursor.execute(sql)
+            cursor.execute(command)
         connection.commit()
 
     #do we then issue a bash command here? leaving as-is for now
@@ -48,7 +46,7 @@ def createReddit():
 #returns the reddit.subreddit instance
 def setRedditSub(redditInstance, sub = 'test'):
     target_sub = sub
-    subreddit = reddit.subreddit(target_sub)
+    subreddit = redditInstance.subreddit(target_sub)
     return subreddit
 
 #function to set reddit trigger phrase
@@ -63,8 +61,9 @@ def setRedditTrigger(trigger = "!BB"):
 #have 'testing' arg to search only through 10 things in inbox, save computation. default to TRUE for now.
 #splits the call into actions and returns 
 
-#right now looks through inbox, could change so we have something look for mentions in subreddits. should talk about.
-#looks through whole inbox, change to look only at unread and setting settled ones to read later.
+#have it look through threads we create for the trigger phrase
+#add postID to games database for reference
+
 def getRedditAction(redditInstance, trigger_phrase = setRedditTrigger(), testing = True):
     storageDict = {} #to store message details as needed
     for item in redditInstance.inbox.all(limit=10):
@@ -110,9 +109,3 @@ red_Inst = createReddit()
 getRedditAction(redditInstance = red_Inst, trigger_phrase = 'testing')
 
 list(red_Inst.inbox.all())
-
-print(os.getenv('red_client_id'))
-print(os.getenv('red_client_secret'))
-print(os.getenv('red_user'))
-print(os.getenv('red_password'))
-print(os.getenv('red_user_agent'))

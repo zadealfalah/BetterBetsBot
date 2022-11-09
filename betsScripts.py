@@ -4,7 +4,7 @@ from utils.py import connectDB, commandDB
 
 #create bet
 #maybe need to remove the 'odds'? don't remember how we wanted to update this. remove if no initial odds.
-def createBet(amountBet, odds, teamBetOn, userID, gameID):
+def createBet(amountBet, odds = None, teamBetOn, userID, gameID):
     connection = connectDB()
     command = commandDB(connection, "INSERT INTO bets (amountBet, odds, teamBetOn, userID, gameID)" +
                         "VALUES ('{amountBet}, '{odds}', '{teamBetOn}', '{userID}', '{gameID}')")
@@ -15,8 +15,7 @@ def updateBetOdds(newOdds, betID):
     command = commandDB(connection, "UPDATE bets SET odds = {newOdds} WHERE betID = {betID}")
 
 
-def setBetResolved(betID):
-    connection = connectDB()
+def setBetResolved(connection, betID): #always happens when game winner decided, updating balance?
     command = commandDB(connection, "UPDATE bets SET resolved = 1 WHERE betID = {betID}")
 
 
