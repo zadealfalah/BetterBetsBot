@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import pymysql.cursors
 import sys
 import praw
+from datetime import datetime #used only in creating reddit post right now, may want to move this import?
 load_dotenv()
 
 
@@ -21,13 +22,17 @@ def connectDB():
 #function to issue commands, takes in the command itself and a connection object
 #e.g command: "INSERT INTO users (username) VALUES ("testname")
 #above command inserts a user
-def commandDB(connection, command):
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(command)
-        connection.commit()
 
-    #do we then issue a bash command here? leaving as-is for now
+#changed how we pull DB, should remove pullDB and re-structure
+def commandDB(connection, command):
+    try: 
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(command)
+            connection.commit()
+
+    except pymysql.Error as e:
+        print(f"Error with pymysql: {e}")
 
 
 
@@ -44,17 +49,61 @@ def createReddit():
 
 #set the sub we're pulling from for our reddit instance, default to 'test'
 #returns the reddit.subreddit instance
-def setRedditSub(redditInstance, sub = 'test'):
-    target_sub = sub
-    subreddit = redditInstance.subreddit(target_sub)
+def setRedditSub(rInstance, rSub = 'test'):
+    target_sub = rSub
+    subreddit = rInstance.subreddit(target_sub)
     return subreddit
 
 #function to set reddit trigger phrase
 #probably won't change, but may as well have in case we do e.g. !BBB or something, won't have to change them all
 #returns the trigger phrase
-def setRedditTrigger(trigger = "!BB"):
-    trigger_phrase = trigger
+def setRedditTrigger(rTrigger = "!BB"):
+    trigger_phrase = rTrigger
     return trigger_phrase
+
+
+#pull games as follows:
+#get current time when this is ran to get start time, add 7 days to this to get end time, pull all games from games table within this timeframe
+#the weekStartTime is from a NOW() command that runs when the code is ran, can set in pythonanywhere to run at start of week to automate
+#returns df with the requisite rows from the games table
+def getGamesOfWeek(league, weekStartTime):
+    connection = connectDB()
+    commandString = f"SELECT * FROM games WHERE gameStartTime > NOW() AND gameStartTime < NOW() + INTERVAL 1 WEEK"
+    df = pd.read_sql(commandString, connection, index_col = 'gameID')
+    return df
+
+
+
+#function to create the reddit post
+#df from getGamesOfWeek(league, weekStartTime)
+def createRedditPost(rSub = setRedditSub(), df, weekNumber):
+    leagueName = df.league[0] #any of the leagues should work as the df was selected with the league in getGamesOfWeek()
+    title = f"Better Bets Week {weekNumber} {leagueName} Post" #e.g. Better Bets Week 5 NFL Post
+
+    selfTextStr = ""
+
+
+    for index, row in df.iterrows():
+        selfTextStr = selfTextStr + f"{row['teamNameZero']} vs. {row['teamNameOne']} on {row['gameStartTime'].strftime('%A')} \n"
+        
+    submission = rSub.submit(title, selftext = selfTextStr) #this submits the post with the title and body (self) text
+
+    #we want the submissionID created once we submit the post above, unsure the best way to do this. 
+    #does rSub.submit(title, selftext = selfTextStr) exist as a submission object now? if so can just do: postID = rSub.submit(title, selftext = selfTextStr).id
+    #seems to be the case according to: https://www.reddit.com/r/redditdev/comments/m5ap3b/whats_the_best_way_to_get_an_id_of_a_post_ive/
+    submissionID = submission.id
+
+
+    #must now add the post and games to the gamePost table
+    #can't do it in original iterrows() since the post wasn't created yet. may be a better way to organize this
+    connection = connectDB()
+    for index, row in df.iterrows():
+        command = commandDB(connection, f"INSERT INTO gamePost (postID, gameID) VALUES ({submissionID}, {row['gameID']})")
+
+
+
+
+
 
 
 #function to find calls to bot in inbox
@@ -64,31 +113,31 @@ def setRedditTrigger(trigger = "!BB"):
 #have it look through threads we create for the trigger phrase
 #add postID to games database for reference
 
-def getRedditAction(redditInstance, trigger_phrase = setRedditTrigger(), testing = True):
-    storageDict = {} #to store message details as needed
-    for item in redditInstance.inbox.all(limit=10):
-        print(repr(item))
-    if testing == True:
-        print("Testing Mode ON!")
-        inbox_to_search = redditInstance.inbox.all(limit = 10) #if testing, look through 10 entries in inbox
-    else:
-        inbox_to_search = redditInstance.inbox.all(limit = None) #unlimited number of entries if not testing
-    print("Got to here")
-    for message in inbox_to_search:
-        print("Got to message")
-        if trigger_phrase in message.body:
-            cList = message.body.split() #turn message body into comment list called cList
-            print(cList) #testing
+# def getRedditAction(redditInstance, trigger_phrase = setRedditTrigger(), testing = True):
+#     storageDict = {} #to store message details as needed
+#     for item in redditInstance.inbox.all(limit=10):
+#         print(repr(item))
+#     if testing == True:
+#         print("Testing Mode ON!")
+#         inbox_to_search = redditInstance.inbox.all(limit = 10) #if testing, look through 10 entries in inbox
+#     else:
+#         inbox_to_search = redditInstance.inbox.all(limit = None) #unlimited number of entries if not testing
+#     print("Got to here")
+#     for message in inbox_to_search:
+#         print("Got to message")
+#         if trigger_phrase in message.body:
+#             cList = message.body.split() #turn message body into comment list called cList
+#             print(cList) #testing
 
-            # storageDict[message.author.name] = {} #create nested dict with author username as keyword
-            # storageDict[message.author.name]['action'] = cList[1] #add action from message to nested dict
-            # storageDict[message.author.name]['timePosted'] = message.created_utc #add utc creation time of message
+#             # storageDict[message.author.name] = {} #create nested dict with author username as keyword
+#             # storageDict[message.author.name]['action'] = cList[1] #add action from message to nested dict
+#             # storageDict[message.author.name]['timePosted'] = message.created_utc #add utc creation time of message
 
 
-        else:
-            continue
+#         else:
+#             continue
 
-        # message.mark_read() #mark the message as read
+#         # message.mark_read() #mark the message as read
 
 
 
