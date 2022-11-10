@@ -25,15 +25,26 @@ def connectDB():
 #above command inserts a user
 
 #changed how we pull DB, should remove pullDB and re-structure
-def commandDB(connection, command):
-    try: 
-        with connection:
-            with connection.cursor() as cursor:
-                cursor.execute(command)
-            connection.commit()
+def commandDB(connection, command, showingValues = False):
+    if showingValues == True: #pulling to show value often done e.g. for BALANCE 
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(command)
+                    allrows = cursor.fetchall()
+                    return allrows #currently returns all rows, can do fetchone() for one
+        except pymysql.Error as e:
+            print(f"Error with pymysql: {e}")
 
-    except pymysql.Error as e:
-        print(f"Error with pymysql: {e}")
+    else: #we are actually changing things, need the commit()
+        try: 
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(command)
+                connection.commit()
+
+        except pymysql.Error as e:
+            print(f"Error with pymysql: {e}")
 
 
 
@@ -109,6 +120,7 @@ def createRedditPost(df, weekNumber, rSub = setRedditSub(createReddit())):
 #keeping for now
 from betsScripts.py import createBet
 
+#returns 5 dictionaries in order of bets, balances, wins, top5, unrecognized
 def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = createReddit()):
     connection = connectDB() #connect to db
     submission = rInstance.submission(postIDToScan) #get the post submission object
@@ -152,8 +164,8 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
                 balancesToCheck[tComment.id] = {}
                 balancesToCheck[tComment.id]['username'] = tComment.author.name #reddit username of commnet poster
             
-            #now if actionTaken == WINS
-            elif actionTaken.lower() == 'wins':
+            #now if actionTaken == WINLOSS
+            elif actionTaken.lower() == 'winloss':
                 winsToCheck[tComment.id] = {}
                 winsToCheck[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
 
@@ -161,10 +173,12 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
             elif actionTaken.lower() == 'top5':
                 topToPost[tComment.id] = {}
                 topToPost[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
+                ##don't really need username here I don't think. may delete later
 
             else: #actionTaken is not recognized
                 unrecognizedToPost[tComment.id] = {}
                 unrecognizedToPost[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
+                unrecognizedToPost[tComment.id]['actionGiven'] = actionTaken #store unrecognized action
 
             #finally here once we check all cases, add the comment to messageLog
             ##messageLog not operational yet, should check this once it is!
@@ -175,13 +189,56 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
     #returns the dictionaries as they are at the end of this, can deal with empty ones once we call from them
             
 
+#craft the responses to our stored actions from a scanRedditPost() command
+def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, rInstance = createReddit()):
+    #first go through all our bets
+    #keys are the commentIDs
+    for commentID in betsDict: ##requires import from betsScripts.py (createBet)
+        username = betsdict[commentID]['username'] ##since we have username here I set createBet to use username, may want to look at.
+        amountBet = betsdict[commentID]['amountBet']
+        #teamBetOn = #hard here as we have the team name, need to think of how to do this
+        #gameID = #will have to pull from post, probably similar to how we do teamBetOn
+        #once I know how to get these right I'll need to use createBet with conditions that stop 'bad' betting
+    
+    for commentID in balancesDict:
+        username = balancesDict[commentID]['username']
+        connection = connectDB()
+        command = commandDB(connection, f"SELECT balance FROM users WHERE username = {username}", showingValues = True)
+        #command above has showingValues = True and as such returns all rows where the command is applicable
+        ## I think that this above returns just the balance for the user, should test
+        comment = rInstance.comment(commentID)
+        comment.reply(f"Your current balance is {command}")
+
+    for commentID in winsDict:
+        username = winsDict[commentID]['username']
+        connection = connectDB()
+        command = commandDB(connection, f"SELECT wins, losses FROM users WHERE username = {username}", showingValues=True)
+        ##unsure how this presents the data, must test how wins, losses are separated here
+        ##once I know, I'll get the WLR with a division and reply with that
+
+    for commentID in topsDict:
+        connection = connectDB()
+        command = commandDB(connection, f"SELECT netBets FROM users ORDER BY VALUE DESC LIMIT 5", showingValues=True)
+        ##again unsure how this presents the data
+        #gives top 5 users by their net bet value associated with their account
+        #once I know how it's formulated, just reply with a formatted list of the top users and their respective values
+
+    for commentID in unrecognizedDict: ##has potential for misuse, need cases to stop it from repeating slurs or whatever
+        comment = rInstance.comment(commentID)
+        actionGiven = unrecognizedDict[commentID]['actionGiven']
+        comment.reply(f"""Your action of {actionGiven} was unrecognized.  Please enter one of the following: \n
+        BETS to place a bet \nBALANCE to see your balance \nWINLOSS to see your win-loss ratio \nTOP5 to see the top
+        five users (by net profit)""")
+
 longtest = "this is a long test string with many characters aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 print(len(longtest))
 longtest[:50]
 
-testdict = {}
-testdict['testkey'] = 'testval'
-print(len(testdict))
+testbet = {}
+testbet['testkey1'] = 'testval1'
+testbet['testkey2'] = 'testval2'
+
+
 
 #example message body for testing:
 #   !BB BET 100 PACKERS SUNDAY
@@ -201,41 +258,3 @@ if "!bb" not in teststr.lower():
     print("!bb is NOT in here")
 else:
     print("Yep!")
-
-
-#function to find calls to bot in inbox
-#have 'testing' arg to search only through 10 things in inbox, save computation. default to TRUE for now.
-#splits the call into actions and returns 
-
-#have it look through threads we create for the trigger phrase
-#add postID to games database for reference
-
-# def getRedditAction(redditInstance, trigger_phrase = setRedditTrigger(), testing = True):
-#     storageDict = {} #to store message details as needed
-#     for item in redditInstance.inbox.all(limit=10):
-#         print(repr(item))
-#     if testing == True:
-#         print("Testing Mode ON!")
-#         inbox_to_search = redditInstance.inbox.all(limit = 10) #if testing, look through 10 entries in inbox
-#     else:
-#         inbox_to_search = redditInstance.inbox.all(limit = None) #unlimited number of entries if not testing
-#     print("Got to here")
-#     for message in inbox_to_search:
-#         print("Got to message")
-#         if trigger_phrase in message.body:
-#             cList = message.body.split() #turn message body into comment list called cList
-#             print(cList) #testing
-
-#             # storageDict[message.author.name] = {} #create nested dict with author username as keyword
-#             # storageDict[message.author.name]['action'] = cList[1] #add action from message to nested dict
-#             # storageDict[message.author.name]['timePosted'] = message.created_utc #add utc creation time of message
-
-
-#         else:
-#             continue
-
-#         # message.mark_read() #mark the message as read
-
-
-
-
