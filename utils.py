@@ -25,8 +25,8 @@ def connectDB():
 #above command inserts a user
 
 #changed how we pull DB, should remove pullDB and re-structure
-def commandDB(connection, command, showingValues = False):
-    if showingValues == True: #pulling to show value often done e.g. for BALANCE 
+def commandDB(connection, command, commit = True):
+    if not commit: #pulling to show value often done e.g. for BALANCE 
         try:
             with connection:
                 with connection.cursor() as cursor:
@@ -45,6 +45,9 @@ def commandDB(connection, command, showingValues = False):
 
         except pymysql.Error as e:
             print(f"Error with pymysql: {e}")
+
+
+def batchCommandDB(connection, command) ####FOR FUTURE WORK FOR MULTIPLE COMMANDS TO NOT OPEN/CLOSE CONNECT
 
 
 
@@ -95,7 +98,7 @@ def createRedditPost(df, weekNumber, rSub = setRedditSub(createReddit())):
 
     ##Should make this first string an intro/instruction, end it with something like:
     ##"Loading Games, Refresh for Edits" which would be removed once we add games
-    ##keep the intro/instructions though.
+    ##keep the intro/instructions though. NOTE IN RULES ONLY TOP LEVEL COMMENTS
     selfTextStr = ""
     submission = rSub.submit(title, selftext = selfTextStr) #this submits the post with the title and EMPTY body
     submissionID = submission.id #get submissionID
@@ -107,7 +110,7 @@ def createRedditPost(df, weekNumber, rSub = setRedditSub(createReddit())):
 
     #may need sleep here to adress timeout error? see if so.
     submission.edit(selftext = selfTextStr) #edit so that we can get submissionID earlier for entry into DB
-
+##may want to return postID here
 
 #we want the submissionID created once we submit the post above, unsure the best way to do this. 
 #does rSub.submit(title, selftext = selfTextStr) exist as a submission object now? if so can just do: postID = rSub.submit(title, selftext = selfTextStr).id
@@ -118,14 +121,19 @@ def createRedditPost(df, weekNumber, rSub = setRedditSub(createReddit())):
 #betScripts.py imports from utils.py (which is this script)
 #may want to separate utils.py into utils.py and redditUtils.py or something
 #keeping for now
-from betsScripts.py import createBet
+from betsScripts import createBet
+from praw.models import MoreComments #required for comment selection
 
 #returns 5 dictionaries in order of bets, balances, wins, top5, unrecognized
+
 def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = createReddit()):
     connection = connectDB() #connect to db
     submission = rInstance.submission(postIDToScan) #get the post submission object
     commandString = f"SELECT commentID FROM messageLog WHERE postID = {postIDToScan}" ####This relies on messageLog table working as intended, double check!
-    df = pd.read_sql(commandString, connection)  #use df to see comments already logged within a post
+    alreadySeen_df = pd.read_sql(commandString, connection)  #use df to see comments already logged within a post
+
+
+    ##turn dicts into 1 object in config file
 
     betsToMake = {} #store all bets to make here
     balancesToCheck = {} #store all balances to check here
@@ -139,10 +147,10 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
             continue
         elif isinstance(tComment, MoreComments): #if it's a 'more comments' link, just keep on going
             continue
-        elif tComment.id in df.commentID: #comment already logged in our table
+        elif tComment.id in alreadySeen_df.commentID: #comment already logged in our table
             continue
         else: #trigger is in the comment, it's not a 'more comment', we haven't logged it yet, so we're good to go
-            cComm = tComment.body.split(trigger) #split on the trigger so as to get rid of anything before it, call it cComm for currentComment, keep tComment (original) in case we need for now
+            cComm = tComment.body.split(trigger)[1] #split on the trigger so as to get rid of anything before it, call it cComm for currentComment, keep tComment (original) in case we need for now
             splitComm = cComm.strip().lower().split() #now it's a list of the words
             actionTaken = splitComm[0] #action the user wants to take e.g. BET, BALANCE, WINS, TOP5
             #could remove above line and just go with cComm[0] but keeping because I keep forgetting for now.
@@ -156,8 +164,11 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
                 betsToMake[tComment.id] = {}
                 betsToMake[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
                 betsToMake[tComment.id]['amountBet'] = splitComm[1]
-                betsToMake[tComment.id]['teamNameZero'] = splitComm[2] #currently req. full name, should allow for aliases/shortening imo later
-                betsToMake[tComment.id]['dayOfWeek'] = splitComm[3]
+                betsToMake[tComment.id]['teamNameBetOn'] = splitComm[2] ##wrap in something to normalize team name
+                #e.g. for normalization aliasing and partial matches
+                betsToMake[tComment.id]['dayOfWeek'] = splitComm[3] if len(splitComm) > 3 else ""
+                #make it so dayOfWeek is optional here
+                
 
             #now if actionTaken == BALANCE  
             elif actionTaken.lower() == 'balance':
@@ -183,19 +194,30 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
             #finally here once we check all cases, add the comment to messageLog
             ##messageLog not operational yet, should check this once it is!
             command = commandDB(connection, f"""INSERT INTO messageLog (commentID, truncBody, commandGiven, respondedTo, postID, username)
-                                            VALUES ({tComment.id}, {cComm[:50]}, {actionTaken}, 1, {tComment.id}, {tComment.author.name})""")
+                                            VALUES ({tComment.id}, {cComm[:50]}, {actionTaken}, 0, {tComment.id}, {tComment.author.name})""")
                                 ##Do these VALUES need apostrophes around them?
     return betsToMake, balancesToCheck, winsToCheck, topToPost, unrecognizedToPost
     #returns the dictionaries as they are at the end of this, can deal with empty ones once we call from them
             
 
+
+
 #craft the responses to our stored actions from a scanRedditPost() command
-def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, rInstance = createReddit()):
+def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, postID, rInstance = createReddit()):
     #first go through all our bets
     #keys are the commentIDs
     for commentID in betsDict: ##requires import from betsScripts.py (createBet)
-        username = betsdict[commentID]['username'] ##since we have username here I set createBet to use username, may want to look at.
-        amountBet = betsdict[commentID]['amountBet']
+        username = betsDict[commentID]['username'] ##since we have username here I set createBet to use username, may want to look at.
+        amountBet = betsDict[commentID]['amountBet']
+        dayOfWeek = betsDict[commentID]['dayOfWeek']
+        teamBetOn = betsDict[commentID]['teamNameBetOn'] ##might need to normalize teamnames
+        #following SQL should get the game in question from our DB
+        # SELECT gameID, DAYNAME(gameStartTime) AS dayName FROM games WHERE postID = {postID} AND (teamNameOne = {teamBetOn} OR teamNameZero = {teamBetOn}) AND (LOWER(dayName) LIKE f'%{dayOfWeek.lower()}%') AND gameStartTime > NOW() AND gameStartTime < NOW() + INTERVAL 1 WEEK
+        
+
+        ##When we care about day of week we must convert to date
+
+
         #teamBetOn = #hard here as we have the team name, need to think of how to do this
         #gameID = #will have to pull from post, probably similar to how we do teamBetOn
         #once I know how to get these right I'll need to use createBet with conditions that stop 'bad' betting
@@ -203,22 +225,22 @@ def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, 
     for commentID in balancesDict:
         username = balancesDict[commentID]['username']
         connection = connectDB()
-        command = commandDB(connection, f"SELECT balance FROM users WHERE username = {username}", showingValues = True)
-        #command above has showingValues = True and as such returns all rows where the command is applicable
+        command = commandDB(connection, f"SELECT balance FROM users WHERE username = {username}", commit = False)
+        #command above has commit = True and as such returns all rows where the command is applicable
         ## I think that this above returns just the balance for the user, should test
         comment = rInstance.comment(commentID)
-        comment.reply(f"Your current balance is {command}")
+        comment.reply(f"Your current balance is {command['balance']}") #think it returns dict, should check
 
     for commentID in winsDict:
         username = winsDict[commentID]['username']
         connection = connectDB()
-        command = commandDB(connection, f"SELECT wins, losses FROM users WHERE username = {username}", showingValues=True)
+        command = commandDB(connection, f"SELECT wins, losses FROM users WHERE username = {username}", commit=False)
         ##unsure how this presents the data, must test how wins, losses are separated here
         ##once I know, I'll get the WLR with a division and reply with that
 
     for commentID in topsDict:
         connection = connectDB()
-        command = commandDB(connection, f"SELECT netBets FROM users ORDER BY VALUE DESC LIMIT 5", showingValues=True)
+        command = commandDB(connection, f"SELECT netBets FROM users ORDER BY VALUE DESC LIMIT 5", commit=False)
         ##again unsure how this presents the data
         #gives top 5 users by their net bet value associated with their account
         #once I know how it's formulated, just reply with a formatted list of the top users and their respective values
