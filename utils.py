@@ -39,20 +39,6 @@ def commandDB(connection, command):
 
 
 
-def insertQueryHelper(table, key_list, values_dict): ##TESTING
-    """
-    Applies the list iteratively to the command for batch execute statements
-    """
-    commandGiven = f"INSERT INTO {table} ({','.join(key_list)}) VALUES "
-
-    for i in values_dict[key_list[0]]:
-        stringGiven = f"({','.join([values_dict[key][i] for key in key_list])}),"
-        commandGiven += stringGiven
-    commandGiven.rstrip(",")
-
-    return commandGiven
-
-
 #e.g. key_list: ["username", "bet_amount", "gameBetOn"] #list of columns to be inserted into
 #e.g. values_dict: {"username" ["Zade", "Jonny", "Cat"], "bet_amount"}
 
@@ -165,6 +151,9 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
             #if we switch, be sure to add userID (tComment.author.id) as key AND 
             #be sure to add tComment.id within e.g. via 
             #betsToMake[tComment.author.id]['commentID'] = tComment.id
+
+            ##actually, switching could lead to missed answers as only the commentID is unique on reddit
+            ##keep the tComment.id as the keys even if it's annoying for now.
             if actionTaken.lower() == 'bet':
                 betsToMake[tComment.id] = {}
                 betsToMake[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
@@ -228,6 +217,7 @@ def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, 
         #gameID = #will have to pull from post, probably similar to how we do teamBetOn
         #once I know how to get these right I'll need to use createBet with conditions that stop 'bad' betting
     
+    #deal with balancesDict
     for commentID in balancesDict:
         username = balancesDict[commentID]['username']
         connection = connectDB()
@@ -237,12 +227,22 @@ def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, 
         comment = rInstance.comment(commentID)
         comment.reply(f"Your current balance is {command['balance']}") #think it returns dict, should check
 
+    #deal with winsDict
+    ##This is a gross way to do it but changing our dict structure makes redundancies possible
+    ##probably a better way, but I think this works for now.
+    winsUsernames = [] #store all usernames we want to iterate through as a list
     for commentID in winsDict:
-        username = winsDict[commentID]['username']
-        connection = connectDB()
-        command = commandDB(connection, f"SELECT wins, losses FROM users WHERE username = {username}", commit=False)
-        ##unsure how this presents the data, must test how wins, losses are separated here
-        ##once I know, I'll get the WLR with a division and reply with that
+        winsUsernames.append(winsDict[commentID]['username'])
+    commandString = f"SELECT username, wins, losses FROM users WHERE username IN {winsUsernames}"
+    connection = connectDB()
+    df = pd.read_sql(commandString, connection)
+    for commentID in winsDict:#link the new data from sql read to the dictionary
+        for index,row in df.iterrows():
+            winsDict[commentID][row['username']]['wlr'] = row['wins'] / (row['wins'] + row['losses'])
+        comment = rInstance.comment(commentID)
+        comment.reply(f"Your current win-loss ratio is {winsDict[commentID]['username']['wlr']}")
+        
+
 
     for commentID in topsDict:
         connection = connectDB()
