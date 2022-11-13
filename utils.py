@@ -24,32 +24,37 @@ def connectDB():
 #e.g command: "INSERT INTO users (username) VALUES ("testname")
 #above command inserts a user
 
+
+##changing this, using pd.read_sql for reading
 #changed how we pull DB, should remove pullDB and re-structure
-def commandDB(connection, command, commit = True):
-    if not commit: #pulling to show value often done e.g. for BALANCE 
-        try:
-            with connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(command)
-                    allrows = cursor.fetchall()
-                    return allrows #currently returns all rows, can do fetchone() for one
-        except pymysql.Error as e:
-            print(f"Error with pymysql: {e}")
+def commandDB(connection, command):
+    try: 
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(command)
+            connection.commit()
 
-    else: #we are actually changing things, need the commit()
-        try: 
-            with connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(command)
-                connection.commit()
-
-        except pymysql.Error as e:
-            print(f"Error with pymysql: {e}")
+    except pymysql.Error as e:
+        print(f"Error with pymysql: {e}")
 
 
-def batchCommandDB(connection, command) ####FOR FUTURE WORK FOR MULTIPLE COMMANDS TO NOT OPEN/CLOSE CONNECT
+
+def insertQueryHelper(table, key_list, values_dict): ##TESTING
+    """
+    Applies the list iteratively to the command for batch execute statements
+    """
+    commandGiven = f"INSERT INTO {table} ({','.join(key_list)}) VALUES "
+
+    for i in values_dict[key_list[0]]:
+        stringGiven = f"({','.join([values_dict[key][i] for key in key_list])}),"
+        commandGiven += stringGiven
+    commandGiven.rstrip(",")
+
+    return commandGiven
 
 
+#e.g. key_list: ["username", "bet_amount", "gameBetOn"] #list of columns to be inserted into
+#e.g. values_dict: {"username" ["Zade", "Jonny", "Cat"], "bet_amount"}
 
 #may want to keep reddit creation in here or maybe make a 'redditScripts.py' or something, can consider. leave here for now.
 #function to create reddit instance
@@ -200,6 +205,7 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
     #returns the dictionaries as they are at the end of this, can deal with empty ones once we call from them
             
 
+##For all reads, do pd.read_sql()
 
 
 #craft the responses to our stored actions from a scanRedditPost() command
@@ -280,3 +286,46 @@ if "!bb" not in teststr.lower():
     print("!bb is NOT in here")
 else:
     print("Yep!")
+
+
+
+
+
+
+
+def insertQueryConstructor(tableToInsert, columnsToInsert, valuesToInsert):
+
+    """
+    action - 
+    table -
+    key_list - ["username". "bet_amount", "gameBetOn"] (This a list of columns to be inserted )
+    tuple_list = [(zade, 100, 45), (jonny, 50, 43), (cat, 4000, 43)]
+    """
+
+    commandGiven = F"INSERT INTO {table} ({','.join(key_list)}) VALUES "
+
+    for tup in tuple_list:
+
+        string = F"({','.join(str(x) for x in tup)}),"
+        commandGiven += string
+
+    commandGiven = commandGiven.rstrip(",")
+
+    return commandGiven
+
+#testing below
+# if __name__ == "__main__":
+#    command = insertQueryHelper("bets", ["username", "bet_amount", "gameBetOn"], [('zade', 100, 45), ('jonny', 50, 43), ('cat', 4000, 43)])
+#    print (command)
+
+
+
+
+
+#when game over, look at all bets that aren't resolved that have same game number
+#fill in odds with UPDATE CASE command
+#take that to create new var of odds*amountBet (call it resolvedBetAmount or something)
+#join games to bets to users, update balance with resolvedBetAmount
+
+
+def gamefinished()
