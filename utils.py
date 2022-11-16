@@ -155,35 +155,40 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
             ##actually, switching could lead to missed answers as only the commentID is unique on reddit
             ##keep the tComment.id as the keys even if it's annoying for now.
             if actionTaken.lower() == 'bet':
-                betsToMake[tComment.id] = {}
-                betsToMake[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
-                betsToMake[tComment.id]['amountBet'] = splitComm[1]
-                betsToMake[tComment.id]['teamNameBetOn'] = splitComm[2] ##wrap in something to normalize team name
-                #e.g. for normalization aliasing and partial matches
-                betsToMake[tComment.id]['dayOfWeek'] = splitComm[3] if len(splitComm) > 3 else ""
-                #make it so dayOfWeek is optional here
+                ## change formatting to below for readabilitity
+                betsToMake[tComment.id] = {
+                    'username' : tComment.author.name,
+                    'amountBet' : splitComm[1],
+                    'teamNameBetOn' : splitComm[2], ##wrap in something to normalize team name
+                    #e.g. for normalization aliasing and partial matches
+                    'dayOfWeek' : splitComm[3] if len(splitComm) > 3 else "", #make it so dayOfWeek is optional here
+                }
                 
 
             #now if actionTaken == BALANCE  
             elif actionTaken.lower() == 'balance':
-                balancesToCheck[tComment.id] = {}
-                balancesToCheck[tComment.id]['username'] = tComment.author.name #reddit username of commnet poster
+                balancesToCheck[tComment.id] = {
+                    'username' : tComment.author.name
+                }
+
             
             #now if actionTaken == WINLOSS
             elif actionTaken.lower() == 'winloss':
-                winsToCheck[tComment.id] = {}
-                winsToCheck[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
+                winsToCheck[tComment.id] = {
+                    'username' : tComment.author.name
+                }
 
             #now if actionTaken == TOP5
             elif actionTaken.lower() == 'top5':
-                topToPost[tComment.id] = {}
-                topToPost[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
-                ##don't really need username here I don't think. may delete later
+                topToPost[tComment.id] = {
+                    'username' : tComment.author.name ##don't really need username here I don't think. may delete later
+                }
 
             else: #actionTaken is not recognized
-                unrecognizedToPost[tComment.id] = {}
-                unrecognizedToPost[tComment.id]['username'] = tComment.author.name #reddit username of comment poster
-                unrecognizedToPost[tComment.id]['actionGiven'] = actionTaken #store unrecognized action
+                unrecognizedToPost[tComment.id] = {
+                    'username' : tComment.author.name,
+                    'actionGiven' : actionTaken
+                }
 
             #finally here once we check all cases, add the comment to messageLog
             ##messageLog not operational yet, should check this once it is!
@@ -218,55 +223,60 @@ def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, 
         #once I know how to get these right I'll need to use createBet with conditions that stop 'bad' betting
     
     #deal with balancesDict
-    for commentID in balancesDict:
-        username = balancesDict[commentID]['username']
+    if balancesDict:
+        commandString = f"SELECT username, balance FROM users"
         connection = connectDB()
-        command = commandDB(connection, f"SELECT balance FROM users WHERE username = {username}", commit = False)
-        #command above has commit = True and as such returns all rows where the command is applicable
-        ## I think that this above returns just the balance for the user, should test
-        comment = rInstance.comment(commentID)
-        comment.reply(f"Your current balance is {command['balance']}") #think it returns dict, should check
+        df = pd.read_sql(commandString, connection)
+        tempvals = [x.get('username') for x in list(balancesDict.values()) if x.get('username')]
+        df = df[df.username in tempvals]
+        ## breaks when mutliple queries from same username
+        ## maybe add commentID to the dataframe?
+        for commentID in balancesDict:
+            userToReplyTo = df[df.username == balancesDict[commentID]['username']]
+            comment = rInstance.comment(commentID)
+            comment.reply(f"Your current balance is {userToReplyTo.balance}")
+
 
     #deal with winsDict
-    ##This is a gross way to do it but changing our dict structure makes redundancies possible
-    ##probably a better way, but I think this works for now.
-    winsUsernames = [] #store all usernames we want to iterate through as a list
-    for commentID in winsDict:
-        winsUsernames.append(winsDict[commentID]['username'])
-    commandString = f"SELECT username, wins, losses FROM users WHERE username IN {winsUsernames}"
-    connection = connectDB()
-    df = pd.read_sql(commandString, connection)
-    for commentID in winsDict:#link the new data from sql read to the dictionary
-        for index,row in df.iterrows():
-            winsDict[commentID][row['username']]['wlr'] = row['wins'] / (row['wins'] + row['losses'])
-        comment = rInstance.comment(commentID)
-        comment.reply(f"Your current win-loss ratio is {winsDict[commentID]['username']['wlr']}")
+    if winsDict:
+        commandString = f"SELECT username, wins, losses FROM users"
+        connection = connectDB()
+        df = pd.read_sql(commandString, connection)
+        tempvals = [x.get('username') for x in list(winsDict.values()) if x.get('username')]
+        df = df[df.username in tempvals]
+        df['wlr'] = df['wins'] / ( df['wins'] + df['losses'] )
+        ## Not perfect below, doesn't work when multiple queries from same username
+        ## maybe add commentID to the dataframe?
+        for commentID in winsDict:
+            userToReplyTo = df[df.username == winsDict[commentID]['username']]
+            comment = rInstance.comment(commentID)
+            comment.reply(f"Your current win-loss ratio is {userToReplyTo.wlr}")
         
 
-
-    for commentID in topsDict:
-        connection = connectDB()
-        command = commandDB(connection, f"SELECT netBets FROM users ORDER BY VALUE DESC LIMIT 5", commit=False)
+    if topsDict:
+        for commentID in topsDict:
+            connection = connectDB()
+            command = commandDB(connection, f"SELECT netBets FROM users ORDER BY VALUE DESC LIMIT 5", commit=False)
         ##again unsure how this presents the data
         #gives top 5 users by their net bet value associated with their account
         #once I know how it's formulated, just reply with a formatted list of the top users and their respective values
-
-    for commentID in unrecognizedDict: ##has potential for misuse, need cases to stop it from repeating slurs or whatever
-        comment = rInstance.comment(commentID)
-        actionGiven = unrecognizedDict[commentID]['actionGiven']
-        comment.reply(f"""Your action of {actionGiven} was unrecognized.  Please enter one of the following: \n
-        BETS to place a bet \nBALANCE to see your balance \nWINLOSS to see your win-loss ratio \nTOP5 to see the top
-        five users (by net profit)""")
+    if unrecognizedDict:
+        for commentID in unrecognizedDict: ##has potential for misuse, need cases to stop it from repeating slurs or whatever
+            comment = rInstance.comment(commentID)
+            actionGiven = unrecognizedDict[commentID]['actionGiven']
+            comment.reply(f"""Your action of {actionGiven} was unrecognized.  Please enter one of the following: \n
+            BETS to place a bet \nBALANCE to see your balance \nWINLOSS to see your win-loss ratio \nTOP5 to see the top
+            five users (by net profit)""")
 
 longtest = "this is a long test string with many characters aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 print(len(longtest))
 longtest[:50]
 
 testbet = {}
-testbet['testkey1'] = 'testval1'
-testbet['testkey2'] = 'testval2'
-
-
+testbet['test1'] = {'username': 'testname1'}
+testbet['test2'] = {'username': 'testname2'}
+templist = [x.get('username') for x in list(testbet.values()) if x.get('username')]
+print(templist)
 
 #example message body for testing:
 #   !BB BET 100 PACKERS SUNDAY
