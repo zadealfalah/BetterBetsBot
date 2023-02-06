@@ -8,7 +8,7 @@ def createBet(amountBet, teamBetOn, username, gameID, odds = None):
     connection = connectDB()
     command = commandDB(connection, "INSERT INTO bets (amountBet, odds, teamBetOn, username, gameID)" +
                         "VALUES ('{amountBet}', '{odds}', '{teamBetOn}', '{username}', '{gameID}')")
-
+    #can update user balance too.  maybe bring all our table scripts together for easier management
 
 # def updateBetOdds(newOdds, betID):
 #     connection = connectDB()

@@ -63,8 +63,9 @@ def setRedditSub(rInstance, rSub = 'test'):
 #function to set reddit trigger phrase
 #probably won't change, but may as well have in case we do e.g. !BBB or something, won't have to change them all
 #returns the trigger phrase
-def setRedditTrigger(rTrigger = "!BB"):
-    trigger_phrase = rTrigger
+rTrigger = "!BB" #global as we use it in responses, easier to change
+def setRedditTrigger(currentTrigger = rTrigger):
+    trigger_phrase = currentTrigger
     return trigger_phrase
 
 
@@ -114,23 +115,20 @@ def createRedditPost(df, weekNumber, rSub = setRedditSub(createReddit())):
 #keeping for now
 from betsScripts import createBet
 from praw.models import MoreComments #required for comment selection
+from usersScripts import getUserBalance
 
 #returns 5 dictionaries in order of bets, balances, wins, top5, unrecognized
 
+
+
+##changed responses, must change scan. 
+#ADD !BB HELP
 def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = createReddit()):
     connection = connectDB() #connect to db
     submission = rInstance.submission(postIDToScan) #get the post submission object
     commandString = f"SELECT commentID FROM messageLog WHERE postID = {postIDToScan}" ####This relies on messageLog table working as intended, double check!
     alreadySeen_df = pd.read_sql(commandString, connection)  #use df to see comments already logged within a post
-
-
-    ##turn dicts into 1 object in config file
-
-    betsToMake = {} #store all bets to make here
-    balancesToCheck = {} #store all balances to check here
-    winsToCheck = {} #store all wins to check here
-    topToPost = {} #store all the people we need to report the top5 to
-    unrecognizedToPost = {} #store all people we need to report unrecognized commands to
+    connection.close()
 
     #we will look only at top-level comments here.  can change to look at deeper comments later
     for tComment in submission.comments: #tComment for a top-level-comment
@@ -144,129 +142,62 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
             cComm = tComment.body.split(trigger)[1] #split on the trigger so as to get rid of anything before it, call it cComm for currentComment, keep tComment (original) in case we need for now
             splitComm = cComm.strip().lower().split() #now it's a list of the words
             actionTaken = splitComm[0] #action the user wants to take e.g. BET, BALANCE, WINS, TOP5
-            #could remove above line and just go with cComm[0] but keeping because I keep forgetting for now.
-
-            #work through the case where actionTaken == BET first
-            #right now user tComment.id as key, could switch and use userID or username as key
-            #if we switch, be sure to add userID (tComment.author.id) as key AND 
-            #be sure to add tComment.id within e.g. via 
-            #betsToMake[tComment.author.id]['commentID'] = tComment.id
-
-            ##actually, switching could lead to missed answers as only the commentID is unique on reddit
-            ##keep the tComment.id as the keys even if it's annoying for now.
-            if actionTaken.lower() == 'bet':
-                ## change formatting to below for readabilitity
-                betsToMake[tComment.id] = {
-                    'username' : tComment.author.name,
-                    'amountBet' : splitComm[1],
-                    'teamNameBetOn' : splitComm[2], ##wrap in something to normalize team name
-                    #e.g. for normalization aliasing and partial matches
-                    'dayOfWeek' : splitComm[3] if len(splitComm) > 3 else "", #make it so dayOfWeek is optional here
-                }
-                
-
-            #now if actionTaken == BALANCE  
-            elif actionTaken.lower() == 'balance':
-                balancesToCheck[tComment.id] = {
-                    'username' : tComment.author.name
-                }
-
-            
-            #now if actionTaken == WINLOSS
-            elif actionTaken.lower() == 'winloss':
-                winsToCheck[tComment.id] = {
-                    'username' : tComment.author.name
-                }
-
-            #now if actionTaken == TOP5
-            elif actionTaken.lower() == 'top5':
-                topToPost[tComment.id] = {
-                    'username' : tComment.author.name ##don't really need username here I don't think. may delete later
-                }
-
-            else: #actionTaken is not recognized
-                unrecognizedToPost[tComment.id] = {
-                    'username' : tComment.author.name,
-                    'actionGiven' : actionTaken
-                }
-
-            #finally here once we check all cases, add the comment to messageLog
-            ##messageLog not operational yet, should check this once it is!
+            connection = connectDB()
             command = commandDB(connection, f"""INSERT INTO messageLog (commentID, truncBody, commandGiven, respondedTo, postID, username)
-                                            VALUES ({tComment.id}, {cComm[:50]}, {actionTaken}, 0, {tComment.id}, {tComment.author.name})""")
+                                            VALUES ({tComment.id}, {cComm[:50]}, {actionTaken}, 0, {postIDToScan}, {tComment.author.name})""")
                                 ##Do these VALUES need apostrophes around them?
-    return betsToMake, balancesToCheck, winsToCheck, topToPost, unrecognizedToPost
-    #returns the dictionaries as they are at the end of this, can deal with empty ones once we call from them
-            
 
 ##For all reads, do pd.read_sql()
 
 
 #craft the responses to our stored actions from a scanRedditPost() command
+#remember that those stored actions are kept in the messageLog db table
 def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, postID, rInstance = createReddit()):
-    #first go through all our bets
-    #keys are the commentIDs
-    for commentID in betsDict: ##requires import from betsScripts.py (createBet)
-        username = betsDict[commentID]['username'] ##since we have username here I set createBet to use username, may want to look at.
-        amountBet = betsDict[commentID]['amountBet']
-        dayOfWeek = betsDict[commentID]['dayOfWeek']
-        teamBetOn = betsDict[commentID]['teamNameBetOn'] ##might need to normalize teamnames
-        #following SQL should get the game in question from our DB
-        # SELECT gameID, DAYNAME(gameStartTime) AS dayName FROM games WHERE postID = {postID} AND (teamNameOne = {teamBetOn} OR teamNameZero = {teamBetOn}) AND (LOWER(dayName) LIKE f'%{dayOfWeek.lower()}%') AND gameStartTime > NOW() AND gameStartTime < NOW() + INTERVAL 1 WEEK
-        
 
-        ##When we care about day of week we must convert to date
-
-
-        #teamBetOn = #hard here as we have the team name, need to think of how to do this
-        #gameID = #will have to pull from post, probably similar to how we do teamBetOn
-        #once I know how to get these right I'll need to use createBet with conditions that stop 'bad' betting
+    connection = connectDB() #connect to db
+    commandString = f"SELECT * FROM messageLog WHERE respondedTo == 0" ####This relies on messageLog table working as intended, double check!
+    unseenDF = pd.read_sql(commandString, connection)  #use df to see comments not yet responded to
+    #read_sql seems to only close the cursor, not the connection.  Lets try to close it manually
+    connection.close() #things like createBet() make their own connection, don't want multiple.
     
-    #deal with balancesDict
-    if balancesDict:
-        commandString = f"SELECT username, balance FROM users"
-        connection = connectDB()
-        df = pd.read_sql(commandString, connection)
-        tempvals = [x.get('username') for x in list(balancesDict.values()) if x.get('username')]
-        df = df[df.username in tempvals]
-        ## breaks when mutliple queries from same username
-        ## maybe add commentID to the dataframe?
-        for commentID in balancesDict:
-            userToReplyTo = df[df.username == balancesDict[commentID]['username']]
-            comment = rInstance.comment(commentID)
-            comment.reply(f"Your current balance is {userToReplyTo.balance}")
+    for index, row in unseenDF.iterrows():
+        #First go through unseen bets
+        if row['commandGiven'] == 'bet':
+            #if it's a bet, we want to add a bet to the bets table
+            splitComm = row['truncBody'].strip().lower().split() #turn body text into list of the words
+            amountBet = splitComm[1]
+            teamBetOn = splitComm[2].lower() #will need to better normalize team names
+            dayOfWeek = splitComm[3] if len(splitComm) > 3 else "" #make it so dayOfWeek is optional
+            createBet(amountBet, teamBetOn, row['userID'], row['gameID']) #create the bet
+            ##must update createBet to update user balance automatically!
+            ##also update createBet to automatically update users' last bet date
+
+            #respond and let them know the bet was set
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"Your bet of {amountBet} for {teamBetOn} has been added!")
 
 
-    #deal with winsDict
-    if winsDict:
-        commandString = f"SELECT username, wins, losses FROM users"
-        connection = connectDB()
-        df = pd.read_sql(commandString, connection)
-        tempvals = [x.get('username') for x in list(winsDict.values()) if x.get('username')]
-        df = df[df.username in tempvals]
-        df['wlr'] = df['wins'] / ( df['wins'] + df['losses'] )
-        ## Not perfect below, doesn't work when multiple queries from same username
-        ## maybe add commentID to the dataframe?
-        for commentID in winsDict:
-            userToReplyTo = df[df.username == winsDict[commentID]['username']]
-            comment = rInstance.comment(commentID)
-            comment.reply(f"Your current win-loss ratio is {userToReplyTo.wlr}")
-        
+        elif row['commandGiven'] == 'balance':
+            userCurrentBalance = getUserBalance()
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"Your current balance is {userCurrentBalance}")
+        elif row['commandGiven'] == 'winloss':
+            #if it's winloss, we want to respond with the users' current winloss
 
-    if topsDict:
-        for commentID in topsDict:
-            connection = connectDB()
-            command = commandDB(connection, f"SELECT netBets FROM users ORDER BY VALUE DESC LIMIT 5", commit=False)
-        ##again unsure how this presents the data
-        #gives top 5 users by their net bet value associated with their account
-        #once I know how it's formulated, just reply with a formatted list of the top users and their respective values
-    if unrecognizedDict:
-        for commentID in unrecognizedDict: ##has potential for misuse, need cases to stop it from repeating slurs or whatever
-            comment = rInstance.comment(commentID)
-            actionGiven = unrecognizedDict[commentID]['actionGiven']
-            comment.reply(f"""Your action of {actionGiven} was unrecognized.  Please enter one of the following: \n
-            BETS to place a bet \nBALANCE to see your balance \nWINLOSS to see your win-loss ratio \nTOP5 to see the top
-            five users (by net profit)""")
+        elif row['commandGiven'] == 'top5':
+            #if it's top5, we want to respond with the current top5 users
+            #want top5 in balance or WL? decide before coding
+        elif row['commandGiven'] == 'help':
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"""Currently supported commands are: 'bet', 'balance', 'winloss', 'top5', and 'help'. \n
+            For example you may type '{rTrigger} BET 500 Lions' to bet 500 on the Lions game in this weeks' post. \n
+            Other commands need only the trigger and the phrase e.g. '{rTrigger} BALANCE'.  Capitalization does not matter.""")
+        else: #the command given was invalid
+            #if the command was invalid, we want to respond letting them know that it was invalid
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"Unfortunately your command was not understood.  Please try {rTrigger} HELP")
+
+
 
 longtest = "this is a long test string with many characters aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 print(len(longtest))
