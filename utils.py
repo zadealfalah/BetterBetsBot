@@ -152,14 +152,21 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
 
 #craft the responses to our stored actions from a scanRedditPost() command
 #remember that those stored actions are kept in the messageLog db table
-def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, postID, rInstance = createReddit()):
+def respondReddit(): #could change to have postID to call only on specific posts. not needed for now.
 
     connection = connectDB() #connect to db
-    commandString = f"SELECT * FROM messageLog WHERE respondedTo == 0" ####This relies on messageLog table working as intended, double check!
+    commandString = f"SELECT * FROM messageLog WHERE respondedTo = 0" ####This relies on messageLog table working as intended, double check!
     unseenDF = pd.read_sql(commandString, connection)  #use df to see comments not yet responded to
     #read_sql seems to only close the cursor, not the connection.  Lets try to close it manually
     connection.close() #things like createBet() make their own connection, don't want multiple.
     
+    #avoid remaking top5 dataframe every time by making it here iff 'top5' was asked for 1 or more times
+    if unseenDF.commandGiven.isin(['top5']):
+        connection = connectDB()
+        commandString = f"SELECT username, balance FROM users ORDER BY balance DESC LIMIT 5"
+        top5DF = pd.read_sql(commandString, connection)
+        connection.close()
+
     for index, row in unseenDF.iterrows():
         #First go through unseen bets
         if row['commandGiven'] == 'bet':
@@ -176,17 +183,30 @@ def respondReddit(betsDict, balancesDict, winsDict, topsDict, unrecognizedDict, 
             comment = rInstance.comment(row['commentID'])
             comment.reply(f"Your bet of {amountBet} for {teamBetOn} has been added!")
 
-
         elif row['commandGiven'] == 'balance':
             userCurrentBalance = getUserBalance()
             comment = rInstance.comment(row['commentID'])
             comment.reply(f"Your current balance is {userCurrentBalance}")
+
         elif row['commandGiven'] == 'winloss':
             #if it's winloss, we want to respond with the users' current winloss
+            connection = connectDB()
+            commandString = f"SELECT nWins, nLosses, nWins/nLosses as wlr FROM users WHERE username = {row['userID']}"
+            wlrDF = pd.read_sql(commandString, connection)
+            connection.close()
+            #respond with stats for the user
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"Your current win/loss ratio is: {round(wlrDF.wlr,3)} with {wlrDF.nWins} wins and {wlrDF.nLosses} losses.")
 
         elif row['commandGiven'] == 'top5':
-            #if it's top5, we want to respond with the current top5 users
-            #want top5 in balance or WL? decide before coding
+            #could have top5 in either WL or balance. for now assume balance is what we want
+            #top5DF table was made earlier iff there was one or more top5 responses to be given
+            #now respond to the person that asked with the relevant details
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"""The current top 5 users by balance are: \n
+               """) #read through and respond w/ top5 username / balance.  how to format response nicely?
+               #in either case we respond with rows from the top5DF. just figure out how to format for reddit
+
         elif row['commandGiven'] == 'help':
             comment = rInstance.comment(row['commentID'])
             comment.reply(f"""Currently supported commands are: 'bet', 'balance', 'winloss', 'top5', and 'help'. \n
