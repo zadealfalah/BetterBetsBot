@@ -36,7 +36,7 @@ def commandDB(connection, command):
 
     except pymysql.Error as e:
         print(f"Error with pymysql: {e}")
-
+    #add error log to messageLog or new table? for better bug tracking w/ sql statements
 
 
 #e.g. key_list: ["username", "bet_amount", "gameBetOn"] #list of columns to be inserted into
@@ -115,7 +115,7 @@ def createRedditPost(df, weekNumber, rSub = setRedditSub(createReddit())):
 #keeping for now
 from betsScripts import createBet
 from praw.models import MoreComments #required for comment selection
-from usersScripts import getUserBalance
+from dbInteractions import getUserBalance
 
 #returns 5 dictionaries in order of bets, balances, wins, top5, unrecognized
 
@@ -144,19 +144,20 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
             actionTaken = splitComm[0] #action the user wants to take e.g. BET, BALANCE, WINS, TOP5
             connection = connectDB()
             command = commandDB(connection, f"""INSERT INTO messageLog (commentID, truncBody, commandGiven, respondedTo, postID, username)
-                                            VALUES ({tComment.id}, {cComm[:50]}, {actionTaken}, 0, {postIDToScan}, {tComment.author.name})""")
+                                            VALUES ('{tComment.id}', '{cComm[:50]}', '{actionTaken}', 0, '{postIDToScan}', '{tComment.author.name}')""")
                                 ##Do these VALUES need apostrophes around them?
+                                ## add gameID here? or in our respond reddit we can append if needed
 
 ##For all reads, do pd.read_sql()
 
 
 #craft the responses to our stored actions from a scanRedditPost() command
 #remember that those stored actions are kept in the messageLog db table
-def respondReddit(): #could change to have postID to call only on specific posts. not needed for now.
+def respondReddit(postToRespondTo): 
 
     connection = connectDB() #connect to db
-    commandString = f"SELECT * FROM messageLog WHERE respondedTo = 0" ####This relies on messageLog table working as intended, double check!
-    unseenDF = pd.read_sql(commandString, connection)  #use df to see comments not yet responded to
+    commandString = f"SELECT * FROM messageLog WHERE respondedTo = 0 AND postID = postToRespondTo" 
+    unseenDF = pd.read_sql(commandString, connection)  #use df to see comments not yet responded to in the post we want
     #read_sql seems to only close the cursor, not the connection.  Lets try to close it manually
     connection.close() #things like createBet() make their own connection, don't want multiple.
     
@@ -169,22 +170,22 @@ def respondReddit(): #could change to have postID to call only on specific posts
 
     for index, row in unseenDF.iterrows():
         #First go through unseen bets
+        ### Need to figure out how to get gameID for the messageLog nicely
         if row['commandGiven'] == 'bet':
             #if it's a bet, we want to add a bet to the bets table
             splitComm = row['truncBody'].strip().lower().split() #turn body text into list of the words
             amountBet = splitComm[1]
             teamBetOn = splitComm[2].lower() #will need to better normalize team names
             dayOfWeek = splitComm[3] if len(splitComm) > 3 else "" #make it so dayOfWeek is optional
-            createBet(amountBet, teamBetOn, row['userID'], row['gameID']) #create the bet
-            ##must update createBet to update user balance automatically!
-            ##also update createBet to automatically update users' last bet date
+            createBet(amountBet, teamBetOn, row['username'], row['gameID']) #create the bet
+            updateUserBalance(-amountBet, row['username']) #update balance by subtracting bet amount
 
             #respond and let them know the bet was set
             comment = rInstance.comment(row['commentID'])
             comment.reply(f"Your bet of {amountBet} for {teamBetOn} has been added!")
 
         elif row['commandGiven'] == 'balance':
-            userCurrentBalance = getUserBalance()
+            userCurrentBalance = getUserBalance(row['username'])
             comment = rInstance.comment(row['commentID'])
             comment.reply(f"Your current balance is {userCurrentBalance}")
 
@@ -216,6 +217,9 @@ def respondReddit(): #could change to have postID to call only on specific posts
             #if the command was invalid, we want to respond letting them know that it was invalid
             comment = rInstance.comment(row['commentID'])
             comment.reply(f"Unfortunately your command was not understood.  Please try {rTrigger} HELP")
+
+
+
 
 
 
