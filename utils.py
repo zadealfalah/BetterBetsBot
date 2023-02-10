@@ -153,7 +153,9 @@ def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = creat
 
 #craft the responses to our stored actions from a scanRedditPost() command
 #remember that those stored actions are kept in the messageLog db table
-def respondReddit(postToRespondTo): 
+
+##createUser(username) for when a user posts and they aren't yet a registered user.
+def respondReddit(postToRespondTo, rInstance = createReddit()): 
 
     connection = connectDB() #connect to db
     commandString = f"SELECT * FROM messageLog WHERE respondedTo = 0 AND postID = postToRespondTo" 
@@ -168,56 +170,72 @@ def respondReddit(postToRespondTo):
         top5DF = pd.read_sql(commandString, connection)
         connection.close()
 
+    #get a list of all active users' usernames
+    connection = connectDB()
+    commandString = f"""SELECT username FROM users WHERE username IN (
+                    SELECT username FROM messageLog WHERE respondedTo = 0 AND PostID = postToRespondTo)"""
+    activeUsersDF = pd.read_sql(commandString, connection) #DF obj. w/ all active users' usernames
+
     for index, row in unseenDF.iterrows():
-        #First go through unseen bets
-        ### Need to figure out how to get gameID for the messageLog nicely
-        if row['commandGiven'] == 'bet':
-            #if it's a bet, we want to add a bet to the bets table
-            splitComm = row['truncBody'].strip().lower().split() #turn body text into list of the words
-            amountBet = splitComm[1]
-            teamBetOn = splitComm[2].lower() #will need to better normalize team names
-            dayOfWeek = splitComm[3] if len(splitComm) > 3 else "" #make it so dayOfWeek is optional
-            createBet(amountBet, teamBetOn, row['username'], row['gameID']) #create the bet
-            updateUserBalance(-amountBet, row['username']) #update balance by subtracting bet amount
-
-            #respond and let them know the bet was set
+        if row['commandGiven'] == 'register': #register user if they ask to do so
+            createUser(row['username'])
             comment = rInstance.comment(row['commentID'])
-            comment.reply(f"Your bet of {amountBet} for {teamBetOn} has been added!")
+            comment.reply(f"Your account is now registered.  Best of luck!")
 
-        elif row['commandGiven'] == 'balance':
-            userCurrentBalance = getUserBalance(row['username'])
-            comment = rInstance.comment(row['commentID'])
-            comment.reply(f"Your current balance is {userCurrentBalance}")
+        #user didn't ask to register, check if they are or not
+        elif row['username'].isin(activeUsersDF): #the user has an activated account already
+            #First go through unseen bets
+            ### Need to figure out how to get gameID for the messageLog nicely
+            if row['commandGiven'] == 'bet':
+                #if it's a bet, we want to add a bet to the bets table
+                splitComm = row['truncBody'].strip().lower().split() #turn body text into list of the words
+                amountBet = splitComm[1]
+                teamBetOn = splitComm[2].lower() #will need to better normalize team names
+                dayOfWeek = splitComm[3] if len(splitComm) > 3 else "" #make it so dayOfWeek is optional
+                createBet(amountBet, teamBetOn, row['username'], row['gameID']) #create the bet
+                updateUserBalance(-amountBet, row['username']) #update balance by subtracting bet amount
 
-        elif row['commandGiven'] == 'winloss':
-            #if it's winloss, we want to respond with the users' current winloss
-            connection = connectDB()
-            commandString = f"SELECT nWins, nLosses, nWins/nLosses as wlr FROM users WHERE username = {row['userID']}"
-            wlrDF = pd.read_sql(commandString, connection)
-            connection.close()
-            #respond with stats for the user
-            comment = rInstance.comment(row['commentID'])
-            comment.reply(f"Your current win/loss ratio is: {round(wlrDF.wlr,3)} with {wlrDF.nWins} wins and {wlrDF.nLosses} losses.")
+                #respond and let them know the bet was set
+                comment = rInstance.comment(row['commentID'])
+                comment.reply(f"Your bet of {amountBet} for {teamBetOn} has been added!")
 
-        elif row['commandGiven'] == 'top5':
-            #could have top5 in either WL or balance. for now assume balance is what we want
-            #top5DF table was made earlier iff there was one or more top5 responses to be given
-            #now respond to the person that asked with the relevant details
-            comment = rInstance.comment(row['commentID'])
-            comment.reply(f"""The current top 5 users by balance are: \n
-               """) #read through and respond w/ top5 username / balance.  how to format response nicely?
-               #in either case we respond with rows from the top5DF. just figure out how to format for reddit
+            elif row['commandGiven'] == 'balance':
+                userCurrentBalance = getUserBalance(row['username'])
+                comment = rInstance.comment(row['commentID'])
+                comment.reply(f"Your current balance is {userCurrentBalance}")
 
-        elif row['commandGiven'] == 'help':
-            comment = rInstance.comment(row['commentID'])
-            comment.reply(f"""Currently supported commands are: 'bet', 'balance', 'winloss', 'top5', and 'help'. \n
-            For example you may type '{rTrigger} BET 500 Lions' to bet 500 on the Lions game in this weeks' post. \n
-            Other commands need only the trigger and the phrase e.g. '{rTrigger} BALANCE'.  Capitalization does not matter.""")
-        else: #the command given was invalid
-            #if the command was invalid, we want to respond letting them know that it was invalid
-            comment = rInstance.comment(row['commentID'])
-            comment.reply(f"Unfortunately your command was not understood.  Please try {rTrigger} HELP")
+            elif row['commandGiven'] == 'winloss':
+                #if it's winloss, we want to respond with the users' current winloss
+                connection = connectDB()
+                commandString = f"SELECT nWins, nLosses, nWins/nLosses as wlr FROM users WHERE username = {row['userID']}"
+                wlrDF = pd.read_sql(commandString, connection)
+                connection.close()
+                #respond with stats for the user
+                comment = rInstance.comment(row['commentID'])
+                comment.reply(f"Your current win/loss ratio is: {round(wlrDF.wlr,3)} with {wlrDF.nWins} wins and {wlrDF.nLosses} losses.")
 
+            elif row['commandGiven'] == 'top5':
+                #could have top5 in either WL or balance. for now assume balance is what we want
+                #top5DF table was made earlier iff there was one or more top5 responses to be given
+                #now respond to the person that asked with the relevant details
+                comment = rInstance.comment(row['commentID'])
+                comment.reply(f"""The current top 5 users by balance are: \n
+                """) #read through and respond w/ top5 username / balance.  how to format response nicely?
+                #in either case we respond with rows from the top5DF. just figure out how to format for reddit
+
+            elif row['commandGiven'] == 'help':
+                comment = rInstance.comment(row['commentID'])
+                comment.reply(f"""Currently supported commands are: 'bet', 'balance', 'winloss', 'top5', 'register' and 'help'. \n
+                For example you may type '{rTrigger} BET 500 Lions' to bet 500 on the Lions game in this weeks' post. \n
+                Other commands need only the trigger and the phrase e.g. '{rTrigger} BALANCE'.  Capitalization does not matter.""")
+            else: #the command given was invalid
+                #if the command was invalid, we want to respond letting them know that it was invalid
+                comment = rInstance.comment(row['commentID'])
+                comment.reply(f"Unfortunately your command was not understood.  Please try {rTrigger} HELP")
+        
+        else: #user not yet an active account, didn't register yet.
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"""Your account has not yet been set up.  Please type '{rTrigger} REGISTER'.""")
 
 
 
