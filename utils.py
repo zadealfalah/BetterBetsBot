@@ -117,12 +117,7 @@ from betsScripts import createBet
 from praw.models import MoreComments #required for comment selection
 from dbInteractions import getUserBalance
 
-#returns 5 dictionaries in order of bets, balances, wins, top5, unrecognized
 
-
-
-##changed responses, must change scan. 
-#ADD !BB HELP
 def scanRedditPost(postIDToScan, trigger = setRedditTrigger(), rInstance = createReddit()):
     connection = connectDB() #connect to db
     submission = rInstance.submission(postIDToScan) #get the post submission object
@@ -182,7 +177,14 @@ def respondReddit(postToRespondTo, rInstance = createReddit()):
             comment = rInstance.comment(row['commentID'])
             comment.reply(f"Your account is now registered.  Best of luck!")
 
-        #user didn't ask to register, check if they are or not
+        #non-registered users can ask for help
+        elif row['commandGiven'] == 'help':
+            comment = rInstance.comment(row['commentID'])
+            comment.reply(f"""Currently supported commands are: 'bet', 'balance', 'winloss', 'top5', 'register' and 'help'. \n
+                        For example you may type '{rTrigger} BET 500 Lions' to bet 500 on the Lions game in this weeks' post. \n
+                        Other commands need only the trigger and the phrase e.g. '{rTrigger} BALANCE'.  Capitalization does not matter.""")
+
+        #user didn't ask to register nor for help, check if they are or are not registered
         elif row['username'].isin(activeUsersDF): #the user has an activated account already
             #First go through unseen bets
             ### Need to figure out how to get gameID for the messageLog nicely
@@ -223,11 +225,6 @@ def respondReddit(postToRespondTo, rInstance = createReddit()):
                 """) #read through and respond w/ top5 username / balance.  how to format response nicely?
                 #in either case we respond with rows from the top5DF. just figure out how to format for reddit
 
-            elif row['commandGiven'] == 'help':
-                comment = rInstance.comment(row['commentID'])
-                comment.reply(f"""Currently supported commands are: 'bet', 'balance', 'winloss', 'top5', 'register' and 'help'. \n
-                For example you may type '{rTrigger} BET 500 Lions' to bet 500 on the Lions game in this weeks' post. \n
-                Other commands need only the trigger and the phrase e.g. '{rTrigger} BALANCE'.  Capitalization does not matter.""")
             else: #the command given was invalid
                 #if the command was invalid, we want to respond letting them know that it was invalid
                 comment = rInstance.comment(row['commentID'])
@@ -276,25 +273,25 @@ else:
 
 
 
-def insertQueryConstructor(tableToInsert, columnsToInsert, valuesToInsert):
+# def insertQueryConstructor(tableToInsert, columnsToInsert, valuesToInsert):
 
-    """
-    action - 
-    table -
-    key_list - ["username". "bet_amount", "gameBetOn"] (This a list of columns to be inserted )
-    tuple_list = [(zade, 100, 45), (jonny, 50, 43), (cat, 4000, 43)]
-    """
+#     """
+#     action - 
+#     table -
+#     key_list - ["username". "bet_amount", "gameBetOn"] (This a list of columns to be inserted )
+#     tuple_list = [(zade, 100, 45), (jonny, 50, 43), (cat, 4000, 43)]
+#     """
 
-    commandGiven = F"INSERT INTO {table} ({','.join(key_list)}) VALUES "
+#     commandGiven = F"INSERT INTO {table} ({','.join(key_list)}) VALUES "
 
-    for tup in tuple_list:
+#     for tup in tuple_list:
 
-        string = F"({','.join(str(x) for x in tup)}),"
-        commandGiven += string
+#         string = F"({','.join(str(x) for x in tup)}),"
+#         commandGiven += string
 
-    commandGiven = commandGiven.rstrip(",")
+#     commandGiven = commandGiven.rstrip(",")
 
-    return commandGiven
+#     return commandGiven
 
 #testing below
 # if __name__ == "__main__":
@@ -311,4 +308,4 @@ def insertQueryConstructor(tableToInsert, columnsToInsert, valuesToInsert):
 #join games to bets to users, update balance with resolvedBetAmount
 
 
-def gamefinished()
+# def gamefinished()
