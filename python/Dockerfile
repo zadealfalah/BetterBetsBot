@@ -1,0 +1,15 @@
+FROM python:3.9
+
+WORKDIR /app
+
+COPY requirements.txt requirements.txt
+
+RUN pip3 install -r requirements.txt
+
+COPY redditScripts.py redditScripts.py
+
+COPY dbInteractions.py dbInteractions.py
+
+COPY utils.py utils.py
+
+ENTRYPOINT [ "python", "" ] 

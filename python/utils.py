@@ -5,20 +5,35 @@ import sys
 import praw
 from datetime import datetime #used only in creating reddit post right now, may want to move this import?
 import pandas as pd
+import sqlalchemy as db
 load_dotenv()
 
 
+
 #function to connect to DB via .env file credentials
-#uses DictCursor
-#returns 'connection' object
+#uses DictCursor returns 'connection' object
+## This is for use with pythonanywhere. have alternative below for docker mysql
+
+# def connectDB():
+#     connection = pymysql.connect(host=os.getenv('db_host'),
+#                                 user=os.getenv('db_user'),
+#                                 password=os.getenv('db_pass'),
+#                                 database=os.getenv('db_schema'),
+#                                 cursorclass=pymysql.cursors.DictCursor)
+#     return connection
+
+import pymysql
+import os
+##connectDB() for docker mysql container 
 def connectDB():
-    connection = pymysql.connect(host=os.getenv('db_host'),
-                                user=os.getenv('db_user'),
-                                password=os.getenv('db_pass'),
-                                database=os.getenv('db_schema'),
+    connection = pymysql.connect(host=os.getenv('d_db_host'),
+                                port=os.getenv('d_db_port'),
+                                # user=os.getenv('d_db_user'),
+                                user='root',
+                                # password=os.getenv('d_db_pw'),
+                                password='pass',
                                 cursorclass=pymysql.cursors.DictCursor)
     return connection
-
 
 #function to issue commands, takes in the command itself and a connection object
 #e.g command: "INSERT INTO users (username) VALUES ("testname")
@@ -38,7 +53,7 @@ def commandDB(connection, command):
         print(f"Error with pymysql: {e}")
     #add error log to messageLog or new table? for better bug tracking w/ sql statements
 
-
+commandDB(connectDB(), "CREATE DATABASE testing;")
 #e.g. key_list: ["username", "bet_amount", "gameBetOn"] #list of columns to be inserted into
 #e.g. values_dict: {"username" ["Zade", "Jonny", "Cat"], "bet_amount"}
 

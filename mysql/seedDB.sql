@@ -7,6 +7,10 @@
 -- add unique constraint to (gameID, gameStartTime)
 -- stops duplicate games from being made on accident
 
+CREATE DATABASE betterBets;
+use betterBets;
+
+
 CREATE TABLE users (
 userID INT PRIMARY KEY AUTO_INCREMENT,
 username VARCHAR(60) UNIQUE NOT NULL,
