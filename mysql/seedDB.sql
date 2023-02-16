@@ -6,7 +6,7 @@
 -- would stop us from having to change things in python
 -- add unique constraint to (gameID, gameStartTime)
 -- stops duplicate games from being made on accident
-
+DROP DATABSE IF EXISTS betterBets;
 CREATE DATABASE betterBets;
 use betterBets;
 

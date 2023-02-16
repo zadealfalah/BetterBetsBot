@@ -1,6 +1,8 @@
-FROM mysql:8.0
+FROM mysql/mysql-server:5.7
 
-ENV MYSQL_ROOT_PASSWORD=root
+ENV MYSQL_ROOT_PASSWORD=root \
+    MYSQL_ROOT_HOST=localhost
 
-COPY ./seedDB.sql /docker-entrypoint-initdb.d/
+ADD seedDB.sql /docker-entrypoint-initdb.d
 
+EXPOSE 3306

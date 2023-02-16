@@ -22,23 +22,19 @@ load_dotenv()
 #                                 cursorclass=pymysql.cursors.DictCursor)
 #     return connection
 
-import pymysql
-import os
-##connectDB() for docker mysql container 
-def connectDB():
-    connection = pymysql.connect(host=os.getenv('d_db_host'),
-                                port=os.getenv('d_db_port'),
-                                # user=os.getenv('d_db_user'),
-                                user='root',
-                                # password=os.getenv('d_db_pw'),
-                                password='pass',
-                                cursorclass=pymysql.cursors.DictCursor)
-    return connection
+import mysql.connector
+
+mydb = mysql.connector.connect(
+    host="localhost"
+    user="root"
+    password="password"
+)
+
+cur = mydb.cursor()
 
 #function to issue commands, takes in the command itself and a connection object
 #e.g command: "INSERT INTO users (username) VALUES ("testname")
 #above command inserts a user
-
 
 ##changing this, using pd.read_sql for reading
 #changed how we pull DB, should remove pullDB and re-structure
